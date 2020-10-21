@@ -1,0 +1,208 @@
+---
+title: "search_nearest"
+author: "Yifan Zhao"
+date: "10/3/2020"
+output: pdf_document
+---
+
+```{r}
+library(geosphere)
+```
+
+```{r}
+
+abb = read.csv("data_clean.csv",stringsAsFactors = FALSE)
+attraction = read.csv("attractions.csv",stringsAsFactors = FALSE)
+subway = read.csv("subway.csv",stringsAsFactors = FALSE)
+
+```
+
+
+```{r}
+#initiate number of nearest subways
+sub_number = {}
+#initiate the distance to the nearest subway stop
+sub_distance = {}
+#initiate the name of the nearest subways
+sub_name = {}
+for (j in 1:nrow(abb)){
+  #对nearest subway stops的计数清零
+  sub = 0
+  #对一个房子和所有地铁站的距离清零
+  sub_distance_list = {}
+  #calculate the distance to each subway stop
+  for (i in 1:nrow(subway)){
+    result_sub <- distGeo (abb[j,c('longitude','latitude')],
+                       subway[i,c('longtitude','latitude')])/1000
+    #对nearest subway stops计数
+    if (result_sub < 1){
+      sub <- sub + 1}
+    #记录一个房子和所有地铁站之间的距离
+    sub_distance_list = c(sub_distance_list,result_sub)
+  }
+  #combine number of nearest subways
+  sub_number = c(sub_number,sub)
+  #find the distance to nearest subway  
+  sub_distance[j] = min(sub_distance_list)
+  #find the stop name of nearest subway
+  sub_name[j] = subway[which.min(sub_distance_list),'name']
+}
+
+sub_number
+sub_distance
+sub_name
+
+
+
+```
+
+
+```{r}
+
+#find number of nearest attraction
+att_number = {}
+#find the distance to the nearest attraction
+att_distance = {}
+att_name = {}
+for (j in 1:nrow(abb)){
+  att = 0
+  att_distance_list = {}
+  for (i in 1:nrow(attraction)){
+    result_att <- distm (abb[j,c('longitude','latitude')],
+                       attraction[i,c('Longtitude','Latitude')], fun = distGeo)/1609
+    if (result_att < 1){
+      att <- att + 1}
+    att_distance_list = c(att_distance_list,result_att)
+  }
+  att_number = c(att_number,att)
+  att_distance[j] = min(att_distance_list)
+  att_name[j] = attraction[which.min(att_distance_list),'attraction.name']
+}
+
+att_number
+att_distance
+att_name
+
+```
+
+```{r}
+# abb['number of subway stops nearby'] = sub_vec
+# abb['number of tourist attractions nearby'] = att_vec
+
+#write file
+df <- data.frame(sub_number,sub_distance, sub_name,
+                 att_number,att_distance, att_name)
+names(df) <- c('number_of_nearest_subway',
+               'distance_to_nearest_subway',
+               'nearest_subway_name',
+               'number of nearest attractions',
+               'distance_to_nearest_attraction',
+               'nearest_attraction_name')
+write.csv(df,"sub_att_only_1.csv")
+
+```
+
+
+```{r}
+
+# write.csv(abb,"abb_with_sub_att.csv")
+
+test <- read.csv("sub_att_only_1.csv")
+
+head(test)
+```
+
+```{r}
+#combine new features
+abb_final <- read.csv("data_with_name_feature_v4.csv")
+abb_final['number_of_nearest_sub'] = sub_number
+abb_final['number_of_nearest_att'] = att_number
+abb_final['distance_nearest_sub'] = sub_distance
+abb_final['name_nearest_sub'] = sub_name
+abb_final['distance_nearest_att'] = att_distance
+abb_final['name_nearest_att'] = att_name
+
+write.csv(abb_final,"abb_final_temp.csv")
+```
+
+
+
+```{r}
+#calculate the metric of popularity for each neighbourhood
+library(tidyverse)
+abb <- read.csv("abb_final_temp.csv",stringsAsFactors = FALSE)
+```
+
+
+```{r}
+#calculate number of listings per neighbourhood
+#exclude neighbourhoods that have few listings
+number_per_neighbourhood <- abb %>%
+  group_by(neighbourhood) %>%
+  summarise(count = n()) %>%
+  filter(count >= median(count))
+
+pop_df <- abb %>% filter(reviews_per_month >= quantile(reviews_per_month,c(0.8)))
+unpop_df <- abb %>% filter(reviews_per_month <= quantile(reviews_per_month,c(0.2)))
+
+pop_n <- pop_df %>% group_by(neighbourhood) %>% summarise(pop = n())
+unpop_n <- unpop_df %>% group_by(neighbourhood) %>% summarise(unpop = n())
+
+ratio <- merge(pop_n,unpop_n,by='neighbourhood',all=T) %>% 
+  replace_na(list(pop = 0, unpop = 0))
+
+
+ratio1 <- merge(ratio,number_per_neighbourhood,by='neighbourhood')
+
+ratio1 <- ratio1 %>% mutate(popularity = (pop - unpop)/count)
+
+```
+
+```{r}
+#sort
+
+#install.packages("sqldf")
+library(sqldf)#load sql engine
+top_10_popular <- sqldf("
+SELECT * FROM ratio1
+ORDER BY
+popularity DESC")
+
+write.csv(top_10_popular,"top_10_popular.csv")
+
+top_10_saturated <- sqldf("
+SELECT * FROM ratio1
+ORDER BY
+count DESC")
+
+write.csv(top_10_saturated,"top_10_saturated.csv")
+
+```
+
+```{r}
+top_10_saturated
+```
+
+
+```{r}
+#plot barplot of popularity of top 10 saturated neighbourhoods
+saturated <- read.csv("/Users/yifanzhao/Desktop/2020fall/CAS天衍实验室数据分析比赛/top_10_saturated.csv")
+
+library(ggplot2)
+
+saturated <- saturated[1:10,]
+
+saturated_p <-
+  ggplot(saturated, aes(X, popularity, fill=ifelse(popularity>0,"positive","negative"))) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("orange","steelblue3"), name="Popularity")+
+  labs(x = "top 10 saturated neighbourhood")+
+  xlim(0,11)+
+  scale_x_continuous(breaks = seq(1, 10, 1))+
+  theme_bw()
+
+saturated_p
+
+
+```
+

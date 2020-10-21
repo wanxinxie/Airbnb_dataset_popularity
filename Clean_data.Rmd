@@ -1,0 +1,46 @@
+---
+title: "Clean_Data"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+#Raw dataset
+```{r}
+
+#install.packages("sqldf")
+library(sqldf)#load sql engine
+data_raw=read.csv("abb_final_full.csv")
+head(data_raw)
+summary(data_raw)
+nrow(data_raw)
+```
+
+
+
+#Cleaning the dataset
+```{r}
+#availability_365 >=100 
+data_clean<-sqldf("SELECT * 
+                  FROM data_raw 
+                  WHERE number_of_reviews>0
+                  AND minimum_nights<=10
+                  ")
+sum(is.na(data_clean))
+nrow(data_clean)
+
+
+```
+
+
+```{r}
+library(stringi)
+non_char<-data_clean[!stri_enc_isascii(data_clean$name),]$name
+data_clean$name=gsub("[^\x01-\x7F]+", "", data_clean$name)
+write.csv(data_clean,"data_clean.csv", row.names = FALSE)
+```
+
+
+
+
+
